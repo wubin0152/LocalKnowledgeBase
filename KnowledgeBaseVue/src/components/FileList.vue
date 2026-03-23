@@ -1,6 +1,12 @@
 <template>
   <div class="file-list">
-    <div v-if="files.length === 0" class="empty-state">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <div class="loading-spinner">🔄</div>
+      <p>正在加载文件列表...</p>
+    </div>
+    
+    <div v-else-if="files.length === 0" class="empty-state">
       <div class="empty-icon">📂</div>
       <p>暂无文件，请上传</p>
       <p class="hint">上传后可以与所有文件对话</p>
@@ -24,12 +30,19 @@
           v-for="file in filteredFiles" 
           :key="file.id" 
           class="file-item"
+          :class="{ 'file-success': file.status === 'success', 'file-error': file.status === 'error' }"
         >
           <div class="file-item-header">
             <span class="file-icon">{{ getFileIcon(file.type) }}</span>
             <div class="file-item-info">
               <h4 class="file-name" :title="file.name">{{ file.name }}</h4>
-              <p class="file-meta">{{ formatFileSize(file.size) }}</p>
+              <p class="file-meta">
+                {{ formatFileSize(file.size) }}
+                <span v-if="file.uploadTime" class="upload-time"> · {{ file.uploadTime }}</span>
+              </p>
+              <p v-if="file.filepath" class="file-path" title="存储路径">
+                📁 {{ file.filepath }}
+              </p>
             </div>
           </div>
           
@@ -97,12 +110,16 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   files: {
     type: Array,
     required: true
+  },
+  loading: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -111,6 +128,17 @@ const emit = defineEmits(['deleteFile', 'previewFile'])
 const searchQuery = ref('')
 const previewFile = ref(null)
 const textContent = ref('')
+
+// 监听文件列表变化，输出调试信息
+watch(() => props.files, (newFiles) => {
+  console.log('📋 [FileList.vue] 文件列表变化:', newFiles.length, '个文件')
+  console.log('📋 [FileList.vue] 文件详情:', newFiles.map(f => ({
+    name: f.name,
+    size: f.size,
+    type: f.type,
+    status: f.status
+  })))
+}, { immediate: true, deep: true })
 
 const filteredFiles = computed(() => {
   if (!searchQuery.value) return props.files
@@ -195,6 +223,23 @@ const handleDownload = (file) => {
   min-height: 0; /* 关键：让 flex 子项正确滚动 */
 }
 
+.loading-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #667eea;
+}
+
+.loading-spinner {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .empty-state {
   text-align: center;
   padding: 3rem 1rem;
@@ -268,9 +313,19 @@ const handleDownload = (file) => {
   transform: translateX(2px);
 }
 
+.file-item.file-success {
+  border-left-color: #48bb78;
+  background: linear-gradient(to right, rgba(72, 187, 120, 0.05), white);
+}
+
+.file-item.file-error {
+  border-left-color: #f56565;
+  background: linear-gradient(to right, rgba(245, 101, 101, 0.05), white);
+}
+
 .file-item-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   flex: 1;
   overflow: hidden;
   min-width: 0; /* 关键：允许文本溢出处理 */
@@ -301,6 +356,25 @@ const handleDownload = (file) => {
 .file-meta {
   color: #718096;
   font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.file-path {
+  color: #4a5568;
+  font-size: 0.7rem;
+  background: #edf2f7;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-time {
+  color: #a0aec0;
+  font-size: 0.7rem;
 }
 
 .file-item-actions {

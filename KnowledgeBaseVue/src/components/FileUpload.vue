@@ -27,9 +27,15 @@
       <div v-for="file in uploadingFiles" :key="file.name" class="upload-item">
         <span class="file-name">{{ file.name }}</span>
         <div class="progress-bar">
-          <div class="progress" :style="{ width: file.progress + '%' }"></div>
+          <div 
+            class="progress" 
+            :style="{ width: file.progress + '%' }"
+            :class="{ 'progress-error': file.status === 'error' }"
+          ></div>
         </div>
         <span class="progress-text">{{ Math.round(file.progress) }}%</span>
+        <span v-if="file.status === 'success'" class="status-icon status-success">✓</span>
+        <span v-if="file.status === 'error'" class="status-icon status-error" :title="file.message">✗</span>
       </div>
     </div>
   </div>
@@ -37,6 +43,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { FILE_API } from '../utils/api'
 
 const emit = defineEmits(['filesUploaded'])
 const fileInput = ref(null)
@@ -72,38 +79,72 @@ const uploadFiles = async (filesArray) => {
     type: file.type,
     file: file,
     progress: 0,
-    uploadTime: new Date().toLocaleString('zh-CN')
+    status: 'uploading', // uploading, success, error
+    message: '',
+    uploadTime: new Date().toLocaleString('zh-CN'),
+    filepath: ''
   }))
 
   uploadingFiles.value = [...uploadingFiles.value, ...newFiles]
 
-  // 模拟上传进度
+  // 真实上传到后端
   for (let i = 0; i < newFiles.length; i++) {
-    await simulateUpload(newFiles[i])
+    await uploadToBackend(newFiles[i])
   }
 
-  // 上传完成后通知父组件
-  emit('filesUploaded', newFiles)
+  // 只保留上传成功的文件
+  const successFiles = newFiles.filter(f => f.status === 'success')
   
-  // 从上传列表中移除
-  uploadingFiles.value = uploadingFiles.value.filter(
-    f => !newFiles.find(nf => nf.id === f.id)
-  )
+  // 上传完成后通知父组件（只传递成功的文件）
+  if (successFiles.length > 0) {
+    emit('filesUploaded', successFiles)
+  }
+  
+  // 从上传列表中移除（延迟 2 秒让用户看到结果）
+  setTimeout(() => {
+    uploadingFiles.value = uploadingFiles.value.filter(
+      f => !newFiles.find(nf => nf.id === f.id)
+    )
+  }, 2000)
 }
 
-const simulateUpload = (file) => {
-  return new Promise((resolve) => {
-    let progress = 0
-    const interval = setInterval(() => {
-      progress += Math.random() * 20
-      if (progress >= 100) {
-        progress = 100
-        clearInterval(interval)
-        resolve()
-      }
-      file.progress = Math.min(progress, 100)
-    }, 200)
-  })
+const uploadToBackend = async (fileObj) => {
+  console.log('🚀 [FileUpload.vue] 开始上传文件:', fileObj.name)
+  try {
+    const formData = new FormData()
+    formData.append('file', fileObj.file)
+
+    console.log('📡 [FileUpload.vue] 发送请求到:', FILE_API.UPLOAD)
+    
+    const response = await fetch(FILE_API.UPLOAD, {
+      method: 'POST',
+      body: formData
+    })
+
+    console.log('📥 [FileUpload.vue] 收到响应状态:', response.status)
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error('❌ [FileUpload.vue] 后端返回错误:', errorData)
+      throw new Error(errorData.detail || '上传失败')
+    }
+
+    const result = await response.json()
+    console.log('✅ [FileUpload.vue] 上传成功:', result)
+    
+    fileObj.progress = 100
+    fileObj.status = 'success'
+    fileObj.message = result.message || '上传成功'
+    fileObj.filepath = result.filepath
+    
+    console.log('✓ [FileUpload.vue] 文件状态已更新:', fileObj.status)
+    
+  } catch (error) {
+    console.error('❌ [FileUpload.vue] 上传失败:', error)
+    fileObj.progress = 0
+    fileObj.status = 'error'
+    fileObj.message = error.message || '上传失败'
+  }
 }
 
 </script>
@@ -191,5 +232,18 @@ const simulateUpload = (file) => {
   font-weight: 600;
   font-size: 0.8rem;
   min-width: 35px;
+}
+
+.status-icon {
+  margin-left: 0.5rem;
+  font-size: 1rem;
+}
+
+.status-success {
+  color: #48bb78;
+}
+
+.status-error {
+  color: #f56565;
 }
 </style>

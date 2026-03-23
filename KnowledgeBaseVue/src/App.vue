@@ -11,6 +11,7 @@
           <FileUpload @filesUploaded="handleFilesUploaded" />
           <FileList 
             :files="files" 
+            :loading="loading"
             @deleteFile="handleDeleteFile" 
             @previewFile="handlePreviewFile"
           />
@@ -54,22 +55,87 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import Header from './components/Header.vue'
 import FileUpload from './components/FileUpload.vue'
 import FileList from './components/FileList.vue'
 import ChatWindow from './components/ChatWindow.vue'
+import { FILE_API } from './utils/api'
 
 const files = ref([])
 const previewFile = ref(null)
 const textContent = ref('')
+const loading = ref(false)
 
-const handleFilesUploaded = (newFiles) => {
-  files.value = [...files.value, ...newFiles]
+// 页面加载时获取文件列表
+onMounted(async () => {
+  await loadFileList()
+})
+
+const loadFileList = async () => {
+  try {
+    console.log('📡 [App.vue] 正在获取文件列表...')
+    loading.value = true
+    
+    const response = await fetch(FILE_API.LIST)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    
+    const fileList = await response.json()
+    console.log('📋 [App.vue] 获取到文件列表:', fileList.length, '个文件')
+    console.log('📋 [App.vue] 文件详情:', fileList)
+    
+    // 为每个文件添加 file 属性（用于预览和下载）
+    files.value = fileList.map(fileInfo => ({
+      ...fileInfo,
+      file: null // 服务器文件没有本地 File 对象，设为 null
+    }))
+    
+  } catch (error) {
+    console.error('❌ [App.vue] 获取文件列表失败:', error)
+  } finally {
+    loading.value = false
+  }
 }
 
-const handleDeleteFile = (fileId) => {
-  files.value = files.value.filter(file => file.id !== fileId)
+const handleFilesUploaded = (newFiles) => {
+  console.log('📥 [App.vue] 收到上传的文件:', newFiles)
+  console.log('📥 [App.vue] 文件数量:', newFiles.length)
+  console.log('📥 [App.vue] 文件详情:', newFiles.map(f => ({
+    name: f.name,
+    status: f.status,
+    size: f.size
+  })))
+  
+  files.value = [...files.value, ...newFiles]
+  
+  console.log('📋 [App.vue] 当前文件列表:', files.value.length, '个文件')
+  console.log('📋 [App.vue] 文件列表详情:', files.value.map(f => ({
+    name: f.name,
+    status: f.status
+  })))
+  
+  // 上传成功后重新加载文件列表
+  setTimeout(() => {
+    loadFileList()
+  }, 500)
+}
+
+const handleDeleteFile = async (fileId) => {
+  const file = files.value.find(f => f.id === fileId)
+  if (file && confirm(`确定要删除文件 "${file.name}" 吗？`)) {
+    try {
+      // TODO: 调用后端删除 API
+      // await fetch(`${FILE_API.LIST}/${fileId}`, { method: 'DELETE' })
+      
+      files.value = files.value.filter(f => f.id !== fileId)
+      console.log('✅ [App.vue] 文件已删除:', file.name)
+    } catch (error) {
+      console.error('❌ [App.vue] 删除失败:', error)
+    }
+  }
 }
 
 const handlePreviewFile = async (file) => {
@@ -77,12 +143,23 @@ const handlePreviewFile = async (file) => {
   
   if (isText(file.type)) {
     try {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        textContent.value = e.target.result.substring(0, 5000)
+      // 如果是服务器文件，需要下载内容
+      if (!file.file) {
+        console.log(file.filepath);
+        
+        const response = await fetch(file.filepath)
+        const blob = await response.blob()
+        const text = await blob.text()
+        textContent.value = text.substring(0, 5000)
+      } else {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          textContent.value = e.target.result.substring(0, 5000)
+        }
+        reader.readAsText(file.file)
       }
-      reader.readAsText(file.file)
     } catch (error) {
+      console.error('无法读取文件内容:', error)
       textContent.value = '无法读取文件内容'
     }
   }
@@ -110,6 +187,11 @@ const generateMockResponse = (question, allFiles) => {
 }
 
 const getFileUrl = (file) => {
+  // 如果是服务器文件，返回完整路径
+  if (!file.file) {
+    return file.filepath
+  }
+  // 如果是本地文件，创建对象 URL
   return URL.createObjectURL(file.file)
 }
 
@@ -269,3 +351,7 @@ const isText = (type) => {
   }
 }
 </style>
+
+
+
+
