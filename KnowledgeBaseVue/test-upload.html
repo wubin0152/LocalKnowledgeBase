@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件上传测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            background: #f0f4ff;
+            border-color: #764ba2;
+        }
+        .upload-area.dragging {
+            background: #e8eeff;
+            border-color: #764ba2;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .file-list {
+            margin-top: 20px;
+        }
+        .file-item {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        .file-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .file-size {
+            color: #666;
+            font-size: 14px;
+        }
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-size: 18px;
+        }
+        .api-status {
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .api-status.ok {
+            background: #d4edda;
+            color: #155724;
+        }
+        .api-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📁 文件上传测试工具</h1>
+        
+        <div id="apiStatus" class="api-status error">检测后端 API 状态...</div>
+        
+        <div class="upload-area" id="uploadArea">
+            <p style="font-size: 48px; margin: 0;">📤</p>
+            <p><strong>点击或拖拽文件到此处上传</strong></p>
+            <p style="color: #666; font-size: 14px;">支持所有文件格式</p>
+            <input type="file" id="fileInput" multiple>
+            <button class="btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="file-list" id="fileList"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/api/files/upload';
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const statusDiv = document.getElementById('status');
+        const fileListDiv = document.getElementById('fileList');
+        const apiStatusDiv = document.getElementById('apiStatus');
+
+        // 检测后端 API
+        async function checkApiStatus() {
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                if (response.ok) {
+                    apiStatusDiv.className = 'api-status ok';
+                    apiStatusDiv.textContent = '✅ 后端 API 正常运行 (http://localhost:8000)';
+                } else {
+                    throw new Error('API 响应异常');
+                }
+            } catch (error) {
+                apiStatusDiv.className = 'api-status error';
+                apiStatusDiv.textContent = '❌ 后端 API 未连接，请先启动后端服务：cd KnowledgeBasePython && python main.py';
+            }
+        }
+
+        // 拖拽事件
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            const files = Array.from(e.dataTransfer.files);
+            uploadFiles(files);
+        });
+
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            uploadFiles(files);
+            fileInput.value = '';
+        });
+
+        async function uploadFiles(files) {
+            if (files.length === 0) return;
+
+            showStatus('正在上传...', 'loading');
+
+            for (const file of files) {
+                await uploadFile(file);
+            }
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '上传失败');
+                }
+
+                const result = await response.json();
+                
+                showStatus(`✅ ${file.name} 上传成功！`, 'success');
+                addFileToList(result);
+
+            } catch (error) {
+                showStatus(`❌ ${file.name} 上传失败：${error.message}`, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+
+            if (type !== 'loading') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+            }
+        }
+
+        function addFileToList(fileInfo) {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <div class="file-info">
+                    <div>
+                        <div class="file-name">📄 ${fileInfo.filename}</div>
+                        <div class="file-size">${formatFileSize(fileInfo.size)}</div>
+                    </div>
+                    <div style="color: #48bb78; font-size: 20px;">✓</div>
+                </div>
+            `;
+            fileListDiv.appendChild(fileItem);
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // 页面加载时检查 API 状态
+        checkApiStatus();
+    </script>
+</body>
+</html>
